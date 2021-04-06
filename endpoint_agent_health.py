@@ -2,6 +2,7 @@ from pprint import pprint
 import requests
 from getpass import getpass
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 
 ## Set variable for a timeframe of the past 7 days
 datecompare = datetime.now(timezone.utc) - timedelta(days=7)
@@ -96,9 +97,29 @@ umbrellaheaders = {
     'Content-Type': 'application/json',
     'Authorization': '[Basic_Umbrella_creds]'
 }
-querystring = {'limit': '1000'}
-umbrellaresponse = requests.get(umbrellaurl, headers=umbrellaheaders, params=querystring)
-umbrellainventory = umbrellaresponse.json()
+umbrellaAll = defaultdict()
+pagenum = 0
+umbrellainventory = "true"
+# Cisco updated their API so we iterate over each "page" of results and add them to a dictionary to use later
+while umbrellainventory != []:
+    querystring = {'limit': '200', 'page': pagenum}
+    umbrellaresponse = requests.get(umbrellaurl, headers=umbrellaheaders, params=querystring)
+    umbrellainventory = umbrellaresponse.json()
+    # Gather potentially useful information and add it to a dictionary based on Computer Name
+    for entries in umbrellainventory:
+        computerName = entries['name']
+        deviceId = entries['deviceId']
+        lastSyncStatus = entries['lastSyncStatus']
+        lastSync = entries['lastSync']
+        osVersion = entries['osVersionName']
+        umbrellaAll[computerName] = {
+            'computerName': computerName,
+            'deviceId': deviceId,
+            'lastSyncStatus': lastSyncStatus,
+            'lastSync': lastSync,
+            'osVersion': osVersion
+        }
+    pagenum += 1
 
 ## Print CSV fields. Certainly room for doing this different ways
 print("JAMF ID,User,SN,Deployment Status,JAMF last contact,"
@@ -139,12 +160,13 @@ for inv_count in jira_inventory['issues']:
         ## Umbrella requires some special logic to match computers
         ## The Umbrella computer name depends on when during the computer standup
         ## process umbrella is installed.
-        for umbrella_count in umbrellainventory:
-            if comp_name == umbrella_count['name']:
-                ## Gather Umbrella last seen date and time
-                umbrellalastseen = umbrella_count['lastSync']
-                ## Gather unique Umbrella DeviceID
-                umbrelladeviceid = umbrella_count['deviceId']
+        try:
+            ## Gather Umbrella last seen date and time using comp_name as the key for the Umbrella dictionary created above
+            umbrellalastseen = umbrellaAll[comp_name]['lastSync']
+            ## Gather unique Umbrella DeviceID using comp_name as the key for the Umbrella dictionary created above
+            umbrelladeviceid = umbrellaAll[comp_name]['deviceId']
+        except:
+            continue
         ## We have a script in JAMF which has devices run a CS command and gather
         ## their unique CrowdStrike ID and store it in a custom attribute
         ## Here we iterate through thouse custom attributes to pull that CS ID
